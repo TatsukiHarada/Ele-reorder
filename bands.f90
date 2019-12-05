@@ -172,14 +172,15 @@ SUBROUTINE punch_band (filband, spin_component, lsigma, no_overlap)
 
   TYPE(bec_type):: becp
   ! becp   : <psi|beta> at current  k-point
-  INTEGER :: ibnd, jbnd, i, ik, ig, ig1, ig2, ipol, npw, ngmax, jmax
+  INTEGER :: ibnd, jbnd, i, ik, ig, ig1, ig2, ipol, npw, ngmax, ngmax2, jmax
   INTEGER :: nks1tot, nks2tot, nks1, nks2
   INTEGER :: iunpun_sigma(4), ios(0:4), done(nbnd)
-  INTEGER :: hogehoge  !Harada
+  INTEGER :: hogehoge, futatsumae  !Harada
   CHARACTER(len=256) :: nomefile
   REAL(dp):: pscur, psmax, psr(nbnd)
   COMPLEX(dp), ALLOCATABLE :: psi(:,:), spsi(:,:), ps(:,:)
-  INTEGER, ALLOCATABLE :: work(:), igg(:)
+  COMPLEX(dp), ALLOCATABLE :: psi2(:,:), ps2(:,:) !Harada
+  INTEGER, ALLOCATABLE :: work(:), igg(:), work2(:), igg2(:) !Harada
   INTEGER, ALLOCATABLE :: closest_band(:,:)! index for band ordering
   INTEGER, ALLOCATABLE :: reordered_band(:,:)! index for band ordering !Harada
   REAL(DP), ALLOCATABLE:: sigma_avg(:,:,:) ! expectation value of sigma
@@ -237,6 +238,7 @@ SUBROUTINE punch_band (filband, spin_component, lsigma, no_overlap)
   !
   IF ( noncolin ) ALLOCATE ( sigma_avg(4,nbnd,nkstot) )
   ALLOCATE ( psi(npwx*npol,nbnd), spsi(npwx*npol,nbnd), ps(nbnd,nbnd) )
+  ALLOCATE ( psi2(npwx*npol,nbnd), ps2(nbnd,nbnd) ) !Harada
   CALL allocate_bec_type(nkb, nbnd, becp)
   !
   DO ik = nks1, nks2
@@ -272,6 +274,27 @@ SUBROUTINE punch_band (filband, spin_component, lsigma, no_overlap)
            IF (ig1 > 0) igg(ig2) = ig1
         END DO
         !
+        ! Harada comparison with 2nd previous k
+        !
+        IF ( ik > 2 ) THEN
+           futatsumae = MAXVAL ( igk_k(:,ik-2) )
+        ELSE
+           futatsumae = MAXVAL ( igk_k(:,ik-1:ik) )
+        ENDIF
+        ngmax2 = max(futatsumae, MAXVAL ( igk_k(:,ik) ))
+        ALLOCATE ( work2(ngmax2), igg2(ngmax2) )
+        work2(:) = 0
+        DO ig1 = 1, ngk(ik-2)
+           work2( igk_k(ig1,ik-2)) = ig1
+        END DO
+        igg2(:) = 0
+        DO ig2 = 1, npw
+           ig1 = work2( igk_k(ig2,ik))
+           IF (ig1 > 0) igg2(ig2) = ig1
+        END DO
+        !
+        ! Harada_kokomade
+        !
         ! compute overlap <\psi_k|S\psi_{k-1}> (without the Bloch factor)
         ! psi(G) = \psi(k+G) (order of G-vectors same as for previous k)
         !
@@ -286,6 +309,18 @@ SUBROUTINE punch_band (filband, spin_component, lsigma, no_overlap)
         END IF
         DEALLOCATE (igg, work)
         CALL calbec (ngk(ik-1), spsi, psi, ps )
+!
+        psi2(:,:) = (0.0_dp,0.0_dp) !Harada
+        DO ig2 = 1, npw
+            IF ( igg2(ig2) > 0 ) psi2(igg2(ig2),:) = evc(ig2,:) !Harada
+        END DO
+        IF ( noncolin) THEN
+           DO ig2 = 1, npw
+              IF ( igg2(ig2) > 0 ) psi2(npwx+igg2(ig2),:) = evc(npwx+ig2,:) !Harada
+           END DO
+        END IF
+        DEALLOCATE (igg2, work2)
+        CALL calbec (ngk(ik-2), spsi, psi2, ps2 ) !Harada
         !
         ! ps(ibnd,jbnd) = <S\psi_{k-1,ibnd} | \psi_{k,jbnd}>
         !
@@ -298,10 +333,11 @@ SUBROUTINE punch_band (filband, spin_component, lsigma, no_overlap)
         !nlost = 0
         DO ibnd=1,nbnd
            !
-           psr(:) = real(ps(ibnd,:))**2+aimag(ps(ibnd,:))**2
+           psr(:) = real(ps(ibnd,:))**2+aimag(ps(ibnd,:))**2&
+                    +real(ps2(ibnd,:))**2+aimag(ps2(ibnd,:))**2!Harada
            psmax = MAXVAL( psr )
            !
-           IF ( psmax > 0.75 ) THEN
+           IF ( psmax > 1.5 ) THEN
               ! simple case: large overlap with one specific band
               closest_band(ibnd,ik) = MAXLOC( psr, 1 )
               ! record that this band at ik has been linked to a band at ik-1 
@@ -330,7 +366,8 @@ SUBROUTINE punch_band (filband, spin_component, lsigma, no_overlap)
                  ! check if this band was already assigne ...
                  !
                  IF ( done(jbnd) > 0 ) CYCLE
-                 pscur = real(ps(ibnd,jbnd))**2+aimag(ps(ibnd,jbnd))**2
+                 pscur = real(ps(ibnd,jbnd))**2+aimag(ps(ibnd,jbnd))**2&
+                         +real(ps2(ibnd,jbnd))**2+aimag(ps2(ibnd,jbnd))**2 !Harada
                  IF ( pscur > psmax ) THEN
                     psmax = pscur
                     jmax = jbnd
@@ -355,7 +392,7 @@ SUBROUTINE punch_band (filband, spin_component, lsigma, no_overlap)
   IF (noncolin) CALL poolrecover(sigma_avg,4*nbnd,nkstot,nks)
   !
   CALL deallocate_bec_type(becp)
-  DEALLOCATE ( psi, spsi, ps )
+  DEALLOCATE ( psi, spsi, ps, psi2, ps2 )  !Harada
   !
   IF ( ionode ) THEN
      !
