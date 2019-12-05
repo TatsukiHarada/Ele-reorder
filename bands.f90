@@ -333,11 +333,11 @@ SUBROUTINE punch_band (filband, spin_component, lsigma, no_overlap)
         !nlost = 0
         DO ibnd=1,nbnd
            !
-           psr(:) = real(ps(ibnd,:))**2+aimag(ps(ibnd,:))**2&
-                    +real(ps2(ibnd,:))**2+aimag(ps2(ibnd,:))**2!Harada
+           psr(:) = ((real(ps(ibnd,:))**2+aimag(ps(ibnd,:))**2)&
+                    *(real(ps2(ibnd,:))**2+aimag(ps2(ibnd,:))**2)) !Harada
            psmax = MAXVAL( psr )
            !
-           IF ( psmax > 1.5 ) THEN
+           IF ( psmax > 0.6 ) THEN
               ! simple case: large overlap with one specific band
               closest_band(ibnd,ik) = MAXLOC( psr, 1 )
               ! record that this band at ik has been linked to a band at ik-1 
